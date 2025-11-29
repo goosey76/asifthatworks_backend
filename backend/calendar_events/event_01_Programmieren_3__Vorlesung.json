@@ -1,0 +1,35 @@
+{
+  "summary": "Programmieren 3: Vorlesung",
+  "description": "University programming course lecture\nMurphy Intelligence Enhanced: Category University Education, Technique Active note-taking, High focus session, Duration 2 hours optimal",
+  "start": {
+    "dateTime": "2025-11-18T10:00:00+01:00",
+    "timeZone": "Europe/Berlin"
+  },
+  "end": {
+    "dateTime": "2025-11-18T12:00:00+01:00",
+    "timeZone": "Europe/Berlin"
+  },
+  "location": "University Campus",
+  "reminders": {
+    "useDefault": false,
+    "overrides": [
+      {
+        "method": "email",
+        "minutes": 30
+      },
+      {
+        "method": "popup",
+        "minutes": 10
+      }
+    ]
+  },
+  "extendedProperties": {
+    "private": {
+      "murphy_intelligence": "true",
+      "enhanced_calendar_system": "true",
+      "test_uuid": "982bb1bf-539c-4b1f-8d1a-714600fff81d",
+      "category": "University",
+      "productivity_boost": "medium"
+    }
+  }
+}

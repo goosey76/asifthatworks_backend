@@ -1,0 +1,22 @@
+
+> backend@1.0.0 start
+> node server.js
+
+[dotenv@17.2.3] injecting env (13) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (0) from ../../.env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from ../../../.env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from ../../.env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from ../../.env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from ../../.env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+[dotenv@17.2.3] injecting env (0) from ../../.env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+Server running on port 3000
+Google OAuth tokens stored successfully for user: 982bb1bf-539c-4b1f-8d1a-714600fff81d
+Testing JARVI with message: hello
+JARVI received message for intent analysis: { text: 'hello', userId: '982bb1bf-539c-4b1f-8d1a-714600fff81d' }
+JARVI Agent: Getting config for: JARVI
+🤖 Trying local embedded model...
+✅ Local embedded model success
+LLM raw response: {"multiple_events":false,"event_title":"DETECTION:**\n\nANY message that mentions updating","date":"2025-11-28","start_time":"01:00","end_time":"02:00","description":"You are JARVI, the sarcastic, supremely confident conductor of the entire productivity stack. You vi","location":"","extraction_method":"local_embedded_model"}

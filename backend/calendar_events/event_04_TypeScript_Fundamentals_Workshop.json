@@ -1,0 +1,35 @@
+{
+  "summary": "TypeScript Fundamentals Workshop",
+  "description": "Web development TypeScript learning workshop\nMurphy Intelligence Enhanced: Category Web Development, Technique Hands-on coding, Medium focus session, Duration 2 hours optimal",
+  "start": {
+    "dateTime": "2025-11-17T16:00:00+01:00",
+    "timeZone": "Europe/Berlin"
+  },
+  "end": {
+    "dateTime": "2025-11-17T18:00:00+01:00",
+    "timeZone": "Europe/Berlin"
+  },
+  "location": "Study Space",
+  "reminders": {
+    "useDefault": false,
+    "overrides": [
+      {
+        "method": "email",
+        "minutes": 30
+      },
+      {
+        "method": "popup",
+        "minutes": 10
+      }
+    ]
+  },
+  "extendedProperties": {
+    "private": {
+      "murphy_intelligence": "true",
+      "enhanced_calendar_system": "true",
+      "test_uuid": "982bb1bf-539c-4b1f-8d1a-714600fff81d",
+      "category": "Web Development",
+      "productivity_boost": "high"
+    }
+  }
+}

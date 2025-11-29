@@ -1,0 +1,35 @@
+{
+  "summary": "Graph Algorithms Workshop",
+  "description": "Algorithm study session focusing on graph algorithms\nMurphy Intelligence Enhanced: Category Algorithm Study, Technique Visual problem solving, High analytical focus, Duration 2 hours optimal",
+  "start": {
+    "dateTime": "2025-11-20T19:00:00+01:00",
+    "timeZone": "Europe/Berlin"
+  },
+  "end": {
+    "dateTime": "2025-11-20T21:00:00+01:00",
+    "timeZone": "Europe/Berlin"
+  },
+  "location": "Study Space",
+  "reminders": {
+    "useDefault": false,
+    "overrides": [
+      {
+        "method": "email",
+        "minutes": 30
+      },
+      {
+        "method": "popup",
+        "minutes": 10
+      }
+    ]
+  },
+  "extendedProperties": {
+    "private": {
+      "murphy_intelligence": "true",
+      "enhanced_calendar_system": "true",
+      "test_uuid": "982bb1bf-539c-4b1f-8d1a-714600fff81d",
+      "category": "Algorithm Study",
+      "productivity_boost": "high"
+    }
+  }
+}
