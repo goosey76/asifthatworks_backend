@@ -154,82 +154,138 @@ const llmService = {
     try {
       console.log('🎯 Trying enhanced JARVI intent analysis model...');
       
-      const lowerPrompt = prompt.toLowerCase().trim();
-      
-      // CRITICAL: Detect calendar query patterns that should delegate to Grim
-      const calendarQueryPatterns = [
-        /what's on my calendar/i,
-        /what.*calendar/i,
-        /calendar.*today/i,
-        /calendar.*tomorrow/i,
-        /show.*calendar/i,
-        /list.*events/i,
-        /get.*events/i,
-        /events.*today/i,
-        /events.*tomorrow/i,
-        /schedule.*today/i,
-        /schedule.*tomorrow/i,
-        /what.*events/i,
-        /check.*calendar/i,
-        /view.*calendar/i,
-        /display.*calendar/i,
-        /see.*calendar/i,
-        /look.*calendar/i
-      ];
-      
-      // Check for calendar queries that need delegation to Grim
-      for (const pattern of calendarQueryPatterns) {
-        if (pattern.test(lowerPrompt)) {
-          console.log('✅ JARVI enhanced model: Calendar query detected, delegating to Grim');
-          return JSON.stringify({
-            Recipient: "Grim",
-            RequestType: "get_events",
-            Message: prompt,
-            extraction_method: 'jarvi_enhanced_model'
-          });
-        }
+      // CRITICAL FIX: Extract just the user's message from the prompt
+      // The prompt format is: ...User message: "actual message here"...
+      const userMessageMatch = prompt.match(/User message:\s*"([^"]+)"/i);
+      if (!userMessageMatch) {
+        // If we can't extract the user message, skip enhanced model
+        console.log('⚠️ JARVI enhanced model: Could not extract user message, falling back');
+        return null;
       }
       
-      // Detect task queries that should delegate to Murphy
+      const userMessage = userMessageMatch[1].trim();
+      const lowerUserMessage = userMessage.toLowerCase();
+      
+      console.log(`🎯 JARVI enhanced model analyzing: "${userMessage}"`);
+      
+      // CRITICAL: Detect task queries FIRST (higher priority to fix routing issue)
+      // Murphy handles tasks, todos, reminders
       const taskQueryPatterns = [
-        /what.*tasks/i,
-        /show.*tasks/i,
-        /list.*tasks/i,
-        /tasks.*today/i,
-        /tasks.*tomorrow/i,
-        /get.*tasks/i,
-        /my.*tasks/i,
+        /^what tasks/i,
+        /^show.*tasks/i,
+        /^list.*tasks/i,
+        /^get.*tasks/i,
+        /^my tasks/i,
+        /tasks.*have/i,
         /todo.*list/i,
-        /check.*tasks/i,
-        /view.*tasks/i,
-        /display.*tasks/i,
-        /see.*tasks/i,
-        /look.*tasks/i
+        /^check.*tasks/i,
+        /^view.*tasks/i,
+        /^display.*tasks/i,
+        /^see.*tasks/i,
+        /add.*task/i,
+        /create.*task/i,
+        /new.*task/i,
+        /remind.*me/i,
+        /reminder/i,
+        /add.*reminder/i,
+        /buy.*groceries/i, // Common task patterns
+        /call.*doctor/i,
+        /finish.*project/i
       ];
       
       for (const pattern of taskQueryPatterns) {
-        if (pattern.test(lowerPrompt)) {
+        if (pattern.test(lowerUserMessage)) {
           console.log('✅ JARVI enhanced model: Task query detected, delegating to Murphy');
           return JSON.stringify({
             Recipient: "Murphy",
             RequestType: "get_tasks",
-            Message: prompt,
+            Message: userMessage,
             extraction_method: 'jarvi_enhanced_model'
           });
         }
       }
       
-      // Detect greeting patterns (should NOT delegate)
+      // Detect calendar query patterns that should delegate to Grim
+      const calendarQueryPatterns = [
+        /^what's on my calendar/i,
+        /^show.*calendar/i,
+        /^show me.*calendar/i,
+        /^show my calendar/i,
+        /^check.*calendar/i,
+        /^view.*calendar/i,
+        /^display.*calendar/i,
+        /^see.*calendar/i,
+        /^look.*calendar/i,
+        /^my calendar/i,
+        /calendar.*today/i,
+        /calendar.*tomorrow/i,
+        /calendar.*week/i,
+        /^list.*events/i,
+        /^get.*events/i,
+        /^what.*events/i,
+        /events.*today/i,
+        /events.*tomorrow/i,
+        /schedule.*today/i,
+        /schedule.*tomorrow/i,
+        /^what do i have/i,
+        /^what meetings/i,
+        /^show.*schedule/i,
+        /upcoming.*event/i
+      ];
+      
+      // Check for calendar queries that need delegation to Grim
+      for (const pattern of calendarQueryPatterns) {
+        if (pattern.test(lowerUserMessage)) {
+          console.log('✅ JARVI enhanced model: Calendar query detected, delegating to Grim');
+          return JSON.stringify({
+            Recipient: "Grim",
+            RequestType: "get_events",
+            Message: userMessage,
+            extraction_method: 'jarvi_enhanced_model'
+          });
+        }
+      }
+      
+      // Detect event creation patterns (should go to Grim)
+      const eventCreationPatterns = [
+        /^create.*event/i,
+        /^add.*event/i,
+        /^schedule.*meeting/i,
+        /^book.*appointment/i,
+        /^set up.*meeting/i,
+        /meeting.*at/i,
+        /appointment.*tomorrow/i
+      ];
+      
+      for (const pattern of eventCreationPatterns) {
+        if (pattern.test(lowerUserMessage)) {
+          console.log('✅ JARVI enhanced model: Event creation detected, delegating to Grim');
+          return JSON.stringify({
+            Recipient: "Grim",
+            RequestType: "create_event",
+            Message: userMessage,
+            extraction_method: 'jarvi_enhanced_model'
+          });
+        }
+      }
+      
+      // Detect greeting patterns (should NOT delegate - respond directly)
       const greetingPatterns = [
-        /^(hey|hello|hi|good morning|good afternoon|good evening|good night).*/i,
-        /^jarvi\??$/i,
-        /^hey jarvi.*$/i,
-        /^hello jarvi.*$/i,
-        /^hi jarvi.*$/i
+        /^hey\s*$/i,
+        /^hello\s*$/i,
+        /^hi\s*$/i,
+        /^hey jarvi/i,
+        /^hello jarvi/i,
+        /^hi jarvi/i,
+        /^good morning/i,
+        /^good afternoon/i,
+        /^good evening/i,
+        /^good night/i,
+        /^jarvi\s*$/i
       ];
       
       for (const pattern of greetingPatterns) {
-        if (pattern.test(lowerPrompt)) {
+        if (pattern.test(lowerUserMessage)) {
           console.log('✅ JARVI enhanced model: Greeting detected, direct response');
           const sarcasticResponses = [
             "Sir, your meaningless greetings bring me profound joy.",
@@ -239,14 +295,68 @@ const llmService = {
             "Fascinating. Truly groundbreaking dialogue."
           ];
           const response = sarcasticResponses[Math.floor(Math.random() * sarcasticResponses.length)];
+          return response; // Return plain text, not JSON
+        }
+      }
+      
+      // Detect capability questions
+      const capabilityPatterns = [
+        /^what can you do/i,
+        /^what do you do/i,
+        /^what can jarvi do/i,
+        /^your capabilities/i
+      ];
+      
+      for (const pattern of capabilityPatterns) {
+        if (pattern.test(lowerUserMessage)) {
+          console.log('✅ JARVI enhanced model: Capability question detected');
           return JSON.stringify({
-            response: response,
+            Recipient: "JARVI",
+            RequestType: "get_goals",
+            Message: userMessage,
+            extraction_method: 'jarvi_enhanced_model'
+          });
+        }
+      }
+      
+      const grimCapabilityPatterns = [
+        /^what can grim do/i,
+        /^what does grim do/i,
+        /grim.*capabilities/i
+      ];
+      
+      for (const pattern of grimCapabilityPatterns) {
+        if (pattern.test(lowerUserMessage)) {
+          console.log('✅ JARVI enhanced model: Grim capability question detected');
+          return JSON.stringify({
+            Recipient: "Grim",
+            RequestType: "get_goals",
+            Message: userMessage,
+            extraction_method: 'jarvi_enhanced_model'
+          });
+        }
+      }
+      
+      const murphyCapabilityPatterns = [
+        /^what can murphy do/i,
+        /^what does murphy do/i,
+        /murphy.*capabilities/i
+      ];
+      
+      for (const pattern of murphyCapabilityPatterns) {
+        if (pattern.test(lowerUserMessage)) {
+          console.log('✅ JARVI enhanced model: Murphy capability question detected');
+          return JSON.stringify({
+            Recipient: "Murphy",
+            RequestType: "get_goals",
+            Message: userMessage,
             extraction_method: 'jarvi_enhanced_model'
           });
         }
       }
       
       // If no specific pattern matched, return null to try other models
+      console.log('⚠️ JARVI enhanced model: No pattern matched, trying other models');
       return null;
       
     } catch (error) {

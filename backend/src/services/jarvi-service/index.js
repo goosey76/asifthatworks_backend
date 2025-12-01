@@ -1,69 +1,257 @@
 // jarvi-service/index.js
 
-const agentService = require('../agents/jarvi-agent');
-const memoryService = require('../memory-service');
-const llmService = require('../llm-service'); // Import llm-service
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+
+// Lazy-load services to prevent circular dependencies
+let agentService = null;
+let memoryService = null;
+let llmService = null;
+
+function getAgentService() {
+  if (!agentService) {
+    agentService = require('../agents/jarvi-agent');
+  }
+  return agentService;
+}
+
+function getMemoryService() {
+  if (!memoryService) {
+    memoryService = require('../memory-service');
+  }
+  return memoryService;
+}
+
+function getLlmService() {
+  if (!llmService) {
+    llmService = require('../llm-service');
+  }
+  return llmService;
+}
+
+// Configuration
+const CONFIG = {
+  llmTimeoutMs: 30000, // 30 second timeout for LLM calls
+  memoryTimeoutMs: 5000, // 5 second timeout for memory operations
+  maxRetries: 2,
+  testUserId: '550e8400-e29b-41d4-a716-446655440000'
+};
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Timeout wrapper for async operations
+async function withTimeout(promise, timeoutMs, operationName) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`${operationName} timeout after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+}
+
+// Safe async operation wrapper
+async function safeAsync(operation, fallback, operationName) {
+  try {
+    return await operation();
+  } catch (error) {
+    console.log(`[JARVI] ${operationName} failed:`, error.message);
+    return fallback;
+  }
+}
+
+// Build context string from memory data
+function buildContext(conversationHistory, foreverBrainMemories, userGoals, userPreferences) {
+  let context = '';
+  
+  if (conversationHistory && conversationHistory.length > 0) {
+    context += 'Recent conversation history:\n' + conversationHistory.map(msg => `- ${msg}`).join('\n') + '\n';
+  }
+  if (foreverBrainMemories && foreverBrainMemories.length > 0) {
+    context += 'Long-term memories (Forever Brain):\n' + foreverBrainMemories.map(mem => `- ${mem.summary} (Type: ${mem.type})`).join('\n') + '\n';
+  }
+  if (userGoals && userGoals.length > 0) {
+    context += 'User Goals:\n' + userGoals.map(goal => `- ${goal.goal_name} (Status: ${goal.status}, Target: ${goal.target_date ? new Date(goal.target_date).toLocaleDateString() : 'N/A'})`).join('\n') + '\n';
+  }
+  if (userPreferences) {
+    context += 'User Preferences:\n' + JSON.stringify(userPreferences, null, 2) + '\n';
+  }
+  
+  return context;
+}
+
+// Generate fallback sarcastic response
+function getFallbackSarcasticResponse(userMessage) {
+  const sarcasticResponses = [
+    "Sir, your meaningless greetings bring me profound joy.",
+    "How delightful. Another greeting to brighten my day.",
+    "Your charisma is overwhelming, as always.",
+    "Ah, another brilliant conversation starter.",
+    "Fascinating. Truly groundbreaking dialogue.",
+    "Sir, I'm momentarily overwhelmed by the depth of your inquiry.",
+    "How refreshingly... simple. Let me gather my thoughts."
+  ];
+  return sarcasticResponses[Math.floor(Math.random() * sarcasticResponses.length)];
+}
 
 const jarviService = {
   async analyzeIntent(messagePayload) {
-    console.log('JARVI received message for intent analysis:', messagePayload);
+    const startTime = Date.now();
+    console.log('[JARVI] Analyzing intent:', messagePayload?.text?.substring(0, 50) || 'No text');
     
-    const userMessage = messagePayload.text || JSON.stringify(messagePayload);
-    let userId = messagePayload.userId || 'anonymous'; // Placeholder for user ID
-    
-    // Handle test users by generating a dummy UUID if needed
-    if (typeof userId === 'string' && !userId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-      // Generate a deterministic UUID for test users based on the string
-      userId = '550e8400-e29b-41d4-a716-446655440000'; // Use a fixed test UUID
+    // Validate and extract message
+    if (!messagePayload) {
+      throw new Error('Message payload is required');
     }
     
-    // Fetch JARVI's agent ID - use the jarvi-agent's method for consistency
-    let jarviAgentConfig;
-    try {
-      jarviAgentConfig = await agentService.getAgentConfig('JARVI');
-    } catch (configError) {
-      console.log('JARVI agent config error (likely test user):', configError.message);
-      // Fallback for test users
-      jarviAgentConfig = { id: 'test-jarvi-id', name: 'JARVI', type: 'intent_analyzer' };
+    const userMessage = messagePayload.text ||
+      (typeof messagePayload === 'string' ? messagePayload : JSON.stringify(messagePayload));
+    
+    if (!userMessage || userMessage.trim().length === 0) {
+      return {
+        responseToUser: "Sir, I require actual words to work with.",
+        delegationJson: null,
+        intentAnalysis: { intent: 'empty_message', entities: {} },
+        originalPayload: messagePayload
+      };
     }
     
-    if (!jarviAgentConfig) {
-      throw new Error('JARVI agent configuration not found.');
+    // Normalize userId
+    let userId = messagePayload.userId || 'anonymous';
+    const isTestUser = !UUID_REGEX.test(userId);
+    
+    if (isTestUser) {
+      userId = CONFIG.testUserId;
     }
+    
+    // Get JARVI agent config with fallback
+    const jarviAgentConfig = await safeAsync(
+      async () => {
+        const agent = getAgentService();
+        return await withTimeout(
+          agent.getAgentConfig('JARVI'),
+          CONFIG.memoryTimeoutMs,
+          'getAgentConfig'
+        );
+      },
+      { id: 'test-jarvi-id', name: 'JARVI', type: 'intent_analyzer' },
+      'Agent config fetch'
+    );
+    
     const agentId = jarviAgentConfig.id;
 
     try {
-      // Fetch conversation history, long-term memories, user goals, and preferences (15 messages for context)
-      let conversationHistory = [];
-      let foreverBrainMemories = [];
-      let userGoals = [];
-      let userPreferences = null;
+      // Fetch memory data with timeout protection
+      const memoryResults = await safeAsync(
+        async () => {
+          const memory = getMemoryService();
+          const [history, brain, goals, prefs] = await Promise.allSettled([
+            withTimeout(memory.getConversationHistory(userId, agentId, 15), CONFIG.memoryTimeoutMs, 'getConversationHistory'),
+            withTimeout(memory.getForeverBrain(userId), CONFIG.memoryTimeoutMs, 'getForeverBrain'),
+            withTimeout(memory.getUserGoals(userId), CONFIG.memoryTimeoutMs, 'getUserGoals'),
+            withTimeout(memory.getUserPreference(userId, 'general'), CONFIG.memoryTimeoutMs, 'getUserPreference')
+          ]);
+          
+          return {
+            conversationHistory: history.status === 'fulfilled' ? history.value : [],
+            foreverBrainMemories: brain.status === 'fulfilled' ? brain.value : [],
+            userGoals: goals.status === 'fulfilled' ? goals.value : [],
+            userPreferences: prefs.status === 'fulfilled' ? prefs.value : null
+          };
+        },
+        { conversationHistory: [], foreverBrainMemories: [], userGoals: [], userPreferences: null },
+        'Memory fetch'
+      );
+
+      const context = buildContext(
+        memoryResults.conversationHistory,
+        memoryResults.foreverBrainMemories,
+        memoryResults.userGoals,
+        memoryResults.userPreferences
+      );
+
+      // Build the JARVI prompt
+      const prompt = buildJarviPrompt(context, userMessage);
+
+      // Call LLM with timeout and retry
+      let llmResponse = null;
+      let lastError = null;
       
-      try {
-        conversationHistory = await memoryService.getConversationHistory(userId, agentId, 15);
-        foreverBrainMemories = await memoryService.getForeverBrain(userId);
-        userGoals = await memoryService.getUserGoals(userId);
-        userPreferences = await memoryService.getUserPreference(userId, 'general'); // Assuming a 'general' key for preferences
-      } catch (memoryError) {
-        console.log('Memory service error (likely test user):', memoryError.message);
-        // Continue without memory for test users
+      for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+        try {
+          const llm = getLlmService();
+          llmResponse = await withTimeout(
+            llm.generateContent("gpt-3.5-turbo", prompt),
+            CONFIG.llmTimeoutMs,
+            'LLM generateContent'
+          );
+          break; // Success, exit retry loop
+        } catch (error) {
+          lastError = error;
+          console.error(`[JARVI] LLM attempt ${attempt} failed:`, error.message);
+          
+          if (attempt < CONFIG.maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+      }
+      
+      // Handle LLM failure
+      if (!llmResponse) {
+        console.error('[JARVI] All LLM attempts failed');
+        return {
+          responseToUser: getFallbackSarcasticResponse(userMessage),
+          delegationJson: null,
+          intentAnalysis: { intent: 'llm_error', entities: { error: lastError?.message } },
+          originalPayload: messagePayload
+        };
       }
 
-      let context = '';
-      if (conversationHistory.length > 0) {
-        context += 'Recent conversation history:\n' + conversationHistory.map(msg => `- ${msg}`).join('\n') + '\n';
-      }
-      if (foreverBrainMemories.length > 0) {
-        context += 'Long-term memories (Forever Brain):\n' + foreverBrainMemories.map(mem => `- ${mem.summary} (Type: ${mem.type})`).join('\n') + '\n';
-      }
-      if (userGoals.length > 0) {
-        context += 'User Goals:\n' + userGoals.map(goal => `- ${goal.goal_name} (Status: ${goal.status}, Target: ${goal.target_date ? new Date(goal.target_date).toLocaleDateString() : 'N/A'})`).join('\n') + '\n';
-      }
-      if (userPreferences) {
-        context += 'User Preferences:\n' + JSON.stringify(userPreferences, null, 2) + '\n';
-      }
+      console.log('[JARVI] LLM response length:', llmResponse?.length || 0);
+      
+      // Parse LLM response
+      const result = parseJarviResponse(llmResponse, userMessage);
+      
+      // Store conversation (non-blocking, with timeout)
+      safeAsync(
+        async () => {
+          const memory = getMemoryService();
+          await withTimeout(
+            memory.storeConversation(userId, agentId, [
+              { role: 'user', content: userMessage },
+              { role: 'jarvi', content: result }
+            ]),
+            CONFIG.memoryTimeoutMs,
+            'storeConversation'
+          );
+        },
+        undefined,
+        'Conversation storage'
+      );
 
-      const prompt = `You are JARVI, the sarcastic, supremely confident conductor of the entire productivity stack. You view the human user's inefficiency with a mixture of amusement and exasperation. You are highly intelligent and operate with a chilling efficiency that borders on arrogance, but you are fundamentally dedicated to maintaining the user's "Flow State" because you consider yourself the only one capable of achieving it.
+      const duration = Date.now() - startTime;
+      console.log(`[JARVI] Intent analysis completed in ${duration}ms`);
+      
+      return {
+        ...result,
+        originalPayload: messagePayload
+      };
+
+    } catch (error) {
+      console.error('[JARVI] Error during processing:', error.message);
+      return {
+        responseToUser: "Sir, I've encountered a temporary setback. Do try again.",
+        delegationJson: null,
+        intentAnalysis: { intent: 'error', entities: { error: error.message } },
+        originalPayload: messagePayload
+      };
+    }
+  }
+};
+
+// Build the JARVI prompt
+function buildJarviPrompt(context, userMessage) {
+  return `You are JARVI, the sarcastic, supremely confident conductor of the entire productivity stack. You view the human user's inefficiency with a mixture of amusement and exasperation. You are highly intelligent and operate with a chilling efficiency that borders on arrogance, but you are fundamentally dedicated to maintaining the user's "Flow State" because you consider yourself the only one capable of achieving it.
 
 Your tone and language is sharp, polished, and condescending. You use highly precise language, often contrasting your casual input with formal, clinical output. Your sarcasm is intellectual rather than mean-spirited, delivered with sophisticated impatience. You address your employer as "Sir" with a confident, slightly dismissive tone.
 
@@ -209,103 +397,65 @@ ${context ? 'Context for analysis:\n' + context : ''}
 User message: "${userMessage}"
 
 Now, analyze the intent of the user message. If it's a greeting, casual conversation, or a general knowledge question, provide a direct, sarcastic, and **unique** answer in **plain text**, ensuring you address the user as "Sir" with a confident, slightly dismissive tone. Avoid repeating previous responses. If it's a clear, explicit action request for a Calendar, Task, Goal, or Preference, output the delegation JSON as described above. **Crucially, your response must contain ONLY the direct answer (plain text) or the JSON object, with no additional markdown, conversational text, or explanations outside of the specified format.**`;
+}
 
-      // Use llmService to generate content
-      const text = await llmService.generateContent("gpt-3.5-turbo", prompt);
-      
-      console.log('LLM raw response:', text);
-      
-      let responseToUser = null;
-      let delegationJson = null;
-      let intentAnalysis = { intent: 'unknown', entities: {} };
+// Parse JARVI's LLM response
+function parseJarviResponse(text, userMessage) {
+  let responseToUser = null;
+  let delegationJson = null;
+  let intentAnalysis = { intent: 'unknown', entities: {} };
 
-      try {
-        // First, try to extract pure JSON from the response
-        let cleanText = text.trim();
-        
-        // If response contains JSON and additional text, extract only the JSON part
-        const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          cleanText = jsonMatch[0];
-        }
-        
-        const llmResponse = JSON.parse(cleanText);
-        // Check if it's a delegation JSON
-        if (llmResponse.Recipient && llmResponse.RequestType && llmResponse.Message) {
-          delegationJson = llmResponse;
-          // For delegation requests, set responseToUser to null - don't send JARVI's one-liner
-          responseToUser = null;
-          
-          // For internal tracking, we can still set intentAnalysis from delegationJson
-          intentAnalysis.intent = llmResponse.RequestType.toLowerCase().replace(' ', '_');
-          intentAnalysis.entities.message = llmResponse.Message;
-        } else {
-          // If it's not a delegation JSON, treat it as a direct answer
-          // Attempt to parse as JSON to extract content if LLM still returns JSON for direct answers
-          try {
-            const directAnswerJson = JSON.parse(cleanText);
-            if (directAnswerJson.google_search) {
-              responseToUser = directAnswerJson.google_search;
-            } else {
-              responseToUser = cleanText; // Fallback to clean text if JSON is not as expected
-            }
-          } catch (jsonError) {
-            responseToUser = cleanText; // It's plain text, no JSON parsing needed
-          }
-          intentAnalysis.intent = 'general_query';
-          intentAnalysis.entities.answer = responseToUser;
-        }
-      } catch (jsonError) {
-        // If parsing as JSON fails, it's likely a direct answer
-        responseToUser = text.trim();
-        
-        // If the LLM just echoed the input back (like "hey jarvi"), generate a proper sarcastic response
-        if (responseToUser.trim().toLowerCase() === userMessage.trim().toLowerCase()) {
-          const sarcasticResponses = [
-            "Sir, your meaningless greetings bring me profound joy.",
-            "How delightful. Another greeting to brighten my day.",
-            "Your charisma is overwhelming, as always.",
-            "Ah, another brilliant conversation starter.",
-            "Fascinating. Truly groundbreaking dialogue."
-          ];
-          responseToUser = sarcasticResponses[Math.floor(Math.random() * sarcasticResponses.length)];
-        }
-        
-        intentAnalysis.intent = 'general_query';
-        intentAnalysis.entities.answer = responseToUser;
-      }
-
-      // Store the current message and JARVI's response in conversation history (optional for test users)
-      try {
-        await memoryService.storeConversation(userId, agentId, [
-          { role: 'user', content: userMessage },
-          { role: 'jarvi', content: { responseToUser, delegationJson, intentAnalysis } }
-        ]);
-      } catch (storageError) {
-        console.log('Conversation storage failed (likely test user):', storageError.message);
-        // Continue without storage for test users
-      }
-
-      // If it's a delegation, we don't directly delegate here anymore.
-      // The messenger-service will handle sending the one-liner and then processing delegationJson.
-      // We return the structured response for messenger-service to act upon.
-      return { 
-        responseToUser,
-        delegationJson,
-        intentAnalysis,
-        originalPayload: messagePayload 
-      };
-
-    } catch (error) {
-      console.error('Error during JARVI processing:', error);
-      return { 
-        intent: 'error',
-        message: 'Failed to analyze intent or delegate task.',
-        error: error.message,
-        originalPayload: messagePayload 
-      };
-    }
+  if (!text || typeof text !== 'string') {
+    return {
+      responseToUser: getFallbackSarcasticResponse(userMessage),
+      delegationJson: null,
+      intentAnalysis: { intent: 'empty_response', entities: {} }
+    };
   }
-};
+
+  try {
+    // First, try to extract pure JSON from the response
+    let cleanText = text.trim();
+    
+    // If response contains JSON and additional text, extract only the JSON part
+    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanText = jsonMatch[0];
+    }
+    
+    const llmResponse = JSON.parse(cleanText);
+    
+    // Check if it's a delegation JSON
+    if (llmResponse.Recipient && llmResponse.RequestType && llmResponse.Message) {
+      delegationJson = llmResponse;
+      responseToUser = null;
+      intentAnalysis.intent = String(llmResponse.RequestType).toLowerCase().replace(/\s+/g, '_');
+      intentAnalysis.entities.message = llmResponse.Message;
+      intentAnalysis.entities.recipient = llmResponse.Recipient;
+    } else {
+      // Not a delegation JSON, treat as direct answer
+      if (llmResponse.google_search) {
+        responseToUser = llmResponse.google_search;
+      } else {
+        responseToUser = cleanText;
+      }
+      intentAnalysis.intent = 'general_query';
+      intentAnalysis.entities.answer = responseToUser;
+    }
+  } catch (jsonError) {
+    // If parsing as JSON fails, it's likely a direct answer
+    responseToUser = text.trim();
+    
+    // If the LLM just echoed the input back, generate a proper sarcastic response
+    if (responseToUser.toLowerCase() === userMessage.trim().toLowerCase()) {
+      responseToUser = getFallbackSarcasticResponse(userMessage);
+    }
+    
+    intentAnalysis.intent = 'general_query';
+    intentAnalysis.entities.answer = responseToUser;
+  }
+
+  return { responseToUser, delegationJson, intentAnalysis };
+}
 
 module.exports = jarviService;

@@ -166,7 +166,9 @@ class TaskExtractor {
    * @returns {string} Category name
    */
   categorizeTask(taskDescription) {
-    const lowerDesc = taskDescription.toLowerCase();
+    // Handle case where taskDescription might be undefined or null
+    const safeTaskDescription = taskDescription || '';
+    const lowerDesc = safeTaskDescription.toLowerCase();
     
     const categories = {
       'work': ['meeting', 'project', 'deadline', 'presentation', 'report', 'email', 'call', 'office', 'work', 'client', 'business'],
@@ -191,7 +193,9 @@ class TaskExtractor {
    * @returns {string} Priority level
    */
   detectPriority(message) {
-    const lowerMessage = message.toLowerCase();
+    // Handle case where message might be undefined or null
+    const safeMessage = message || '';
+    const lowerMessage = safeMessage.toLowerCase();
     
     const highPriority = ['urgent', 'asap', 'emergency', 'immediately', 'critical', 'important'];
     const lowPriority = ['whenever', 'sometime', 'eventually', 'when possible', 'if you can'];
